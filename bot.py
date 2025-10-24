@@ -29,9 +29,8 @@ user_states = {}
 # ─────────────────────────────────
 # YouTube Download Functions
 # ─────────────────────────────────
-async def download_song(link: str) -> str:
+async def download_song(video_id: str) -> str:
     """Download YouTube audio"""
-    video_id = link.split('v=')[-1].split('&')[0]
     print(f"🎵 [AUDIO] Starting download process for ID: {video_id}")
     
     if not video_id or len(video_id) < 5:
@@ -81,9 +80,8 @@ async def download_song(link: str) -> str:
         return None
 
 
-async def download_video(link: str) -> str:
+async def download_video(video_id: str) -> str:
     """Download YouTube video"""
-    video_id = link.split('v=')[-1].split('&')[0]
     print(f"🎥 [VIDEO] Starting download process for ID: {video_id}")
     
     if not video_id or len(video_id) < 5:
@@ -133,6 +131,24 @@ async def download_video(link: str) -> str:
         return None
 
 
+def extract_video_id(text: str) -> str:
+    """Extract video ID from text (supports video ID or full YouTube URL)"""
+    text = text.strip()
+    
+    # If it's a full URL, extract the video ID
+    if "youtube.com" in text or "youtu.be" in text:
+        if "youtu.be/" in text:
+            video_id = text.split("youtu.be/")[-1].split("?")[0].split("&")[0]
+        elif "v=" in text:
+            video_id = text.split("v=")[-1].split("&")[0]
+        else:
+            return text
+        return video_id
+    
+    # Otherwise, assume it's already a video ID
+    return text
+
+
 # ─────────────────────────────────
 # Bot Handlers
 # ─────────────────────────────────
@@ -142,10 +158,11 @@ async def start_command(client, message):
     await message.reply_text(
         "👋 **Welcome to YouTube Downloader Bot!**\n\n"
         "📝 **How to use:**\n"
-        "• Send me a YouTube link\n"
+        "• Use `/get <video_id>` command\n"
         "• Choose Audio or Video format\n"
         "• Wait for your download!\n\n"
-        "💡 You can also use `/get <youtube_link>` command\n\n"
+        "💡 **Example:**\n"
+        "`/get dQw4w9WgXcQ`\n\n"
         "Made with ❤️ using Pyrogram",
         disable_web_page_preview=True
     )
@@ -153,53 +170,31 @@ async def start_command(client, message):
 
 @app.on_message(filters.command("get"))
 async def get_command(client, message):
-    """Handle /get command with YouTube link"""
+    """Handle /get command with YouTube video ID"""
     if len(message.command) < 2:
         await message.reply_text(
-            "❌ **Usage:** `/get <youtube_link>`\n\n"
-            "**Example:**\n`/get https://youtu.be/dQw4w9WgXcQ`"
+            "❌ **Usage:** `/get <video_id>`\n\n"
+            "**Example:**\n`/get dQw4w9WgXcQ`\n\n"
+            "💡 **Tip:** Send only the video ID, not the full link!"
         )
         return
     
-    link = message.command[1]
+    video_id = message.command[1]
     
-    # Validate YouTube link
-    if not ("youtube.com" in link or "youtu.be" in link):
-        await message.reply_text("❌ Please provide a valid YouTube link!")
-        return
+    # Extract video ID if user accidentally sent a full URL
+    video_id = extract_video_id(video_id)
     
-    # Store link and show format options
-    user_states[message.from_user.id] = {"link": link}
-    
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎵 Audio", callback_data="format_audio"),
-            InlineKeyboardButton("🎥 Video", callback_data="format_video")
-        ]
-    ])
-    
-    await message.reply_text(
-        f"🔗 **Link received!**\n\n"
-        f"Choose download format:",
-        reply_markup=keyboard
-    )
-
-
-@app.on_message(filters.text & filters.private & ~filters.command(["start", "get"]))
-async def handle_link(client, message):
-    """Handle YouTube links sent directly"""
-    link = message.text.strip()
-    
-    # Validate YouTube link
-    if not ("youtube.com" in link or "youtu.be" in link):
+    # Validate video ID (YouTube IDs are typically 11 characters)
+    if len(video_id) < 5 or len(video_id) > 20:
         await message.reply_text(
-            "❌ Please send a valid YouTube link!\n\n"
-            "**Example:**\n`https://youtu.be/dQw4w9WgXcQ`"
+            "❌ **Invalid video ID!**\n\n"
+            "Please provide a valid YouTube video ID.\n\n"
+            "**Example:**\n`/get dQw4w9WgXcQ`"
         )
         return
     
-    # Store link and show format options
-    user_states[message.from_user.id] = {"link": link}
+    # Store video ID and show format options
+    user_states[message.from_user.id] = {"video_id": video_id}
     
     keyboard = InlineKeyboardMarkup([
         [
@@ -209,7 +204,7 @@ async def handle_link(client, message):
     ])
     
     await message.reply_text(
-        f"🔗 **Link received!**\n\n"
+        f"✅ **Video ID received:** `{video_id}`\n\n"
         f"Choose download format:",
         reply_markup=keyboard
     )
@@ -221,55 +216,66 @@ async def handle_format_selection(client, callback_query):
     user_id = callback_query.from_user.id
     format_type = callback_query.data.split("_")[1]  # audio or video
     
-    # Check if user has a stored link
-    if user_id not in user_states or "link" not in user_states[user_id]:
-        await callback_query.answer("❌ Please send a YouTube link first!", show_alert=True)
+    # Check if user has a stored video ID
+    if user_id not in user_states or "video_id" not in user_states[user_id]:
+        await callback_query.answer("❌ Please use /get command first!", show_alert=True)
         return
     
-    link = user_states[user_id]["link"]
+    video_id = user_states[user_id]["video_id"]
     
     await callback_query.answer()
     await callback_query.message.edit_text(
         f"⏳ **Downloading {format_type}...**\n\n"
+        f"Video ID: `{video_id}`\n"
         f"Please wait, this may take a moment..."
     )
     
     try:
         if format_type == "audio":
-            file_path = await download_song(link)
+            file_path = await download_song(video_id)
             file_type = "audio"
             emoji = "🎵"
         else:
-            file_path = await download_video(link)
+            file_path = await download_video(video_id)
             file_type = "video"
             emoji = "🎥"
         
         if not file_path or not os.path.exists(file_path):
             await callback_query.message.edit_text(
                 f"❌ **Download failed!**\n\n"
+                f"Video ID: `{video_id}`\n\n"
                 f"Please check:\n"
                 f"• Your API key is valid\n"
-                f"• The YouTube link is correct\n"
-                f"• The video is available"
+                f"• The video ID is correct\n"
+                f"• The video is available\n\n"
+                f"Try again with `/get {video_id}`"
             )
             return
         
         # Update status
         await callback_query.message.edit_text(
             f"📤 **Uploading {file_type}...**\n\n"
+            f"Video ID: `{video_id}`\n"
             f"Please wait..."
         )
+        
+        # Construct YouTube link for caption
+        youtube_link = f"https://www.youtube.com/watch?v={video_id}"
         
         # Send file
         if format_type == "audio":
             await callback_query.message.reply_audio(
                 audio=file_path,
-                caption=f"{emoji} **Downloaded Audio**\n\n🔗 [Source]({link})"
+                caption=f"{emoji} **Downloaded Audio**\n\n"
+                        f"📹 Video ID: `{video_id}`\n"
+                        f"🔗 [Watch on YouTube]({youtube_link})"
             )
         else:
             await callback_query.message.reply_video(
                 video=file_path,
-                caption=f"{emoji} **Downloaded Video**\n\n🔗 [Source]({link})"
+                caption=f"{emoji} **Downloaded Video**\n\n"
+                        f"📹 Video ID: `{video_id}`\n"
+                        f"🔗 [Watch on YouTube]({youtube_link})"
             )
         
         # Delete status message
@@ -283,7 +289,9 @@ async def handle_format_selection(client, callback_query):
         print(f"Error during upload: {e}")
         await callback_query.message.edit_text(
             f"❌ **Upload failed!**\n\n"
-            f"Error: {str(e)}"
+            f"Video ID: `{video_id}`\n"
+            f"Error: `{str(e)}`\n\n"
+            f"Try again with `/get {video_id}`"
         )
 
 
@@ -292,8 +300,13 @@ async def handle_format_selection(client, callback_query):
 # ─────────────────────────────────
 if __name__ == "__main__":
     print("🤖 Bot is starting...")
-    print("📝 Make sure to configure:")
-    print("   • API_ID and API_HASH from my.telegram.org")
-    print("   • BOT_TOKEN from @BotFather")
-    print("   • API_KEY from @InflexAPIBot")
+    print("=" * 50)
+    print("📝 Configuration:")
+    print(f"   • API_ID: {API_ID}")
+    print(f"   • BOT_TOKEN: {BOT_TOKEN[:20]}...")
+    print(f"   • API_KEY: {API_KEY}")
+    print("=" * 50)
+    print("✅ Bot is ready!")
+    print("💡 Usage: /get <video_id>")
+    print("=" * 50)
     app.run()
